@@ -1,3 +1,4 @@
+import random
 import gym
 import numpy as np
 import tensorflow as tf
@@ -9,41 +10,64 @@ NUM_EPISODES = 150
 pp = pprint.PrettyPrinter()
 
 
-class QModel(object):
+class QModel2(object):
 
-    def __init__(self, sess):
+    def __init__(self, sess, input_dim=4, actions_dim=2):
         self.sess = sess
+        self.input_dim = input_dim
+        self.actions_dim = actions_dim
 
-        self.x = tf.placeholder(tf.float32, [None, 4])
+        N = 100
+
         # TODO: think about making this symmetric with minval=-1
-        self.W1 = tf.Variable(tf.random_uniform([4, 100]))
-        self.b1 = tf.Variable(tf.random_uniform([100]))
-        self.W2 = tf.Variable(tf.random_uniform([100, 2]))
-        self.b2 = tf.Variable(tf.random_uniform([2]))
+        W1 = tf.Variable(tf.random_uniform([self.input_dim, N]))
+        b1 = tf.Variable(tf.random_uniform([N]))
+        W2 = tf.Variable(tf.random_uniform([N, self.actions_dim]))
+        b2 = tf.Variable(tf.random_uniform([self.actions_dim]))
 
-        self.L1 = tf.nn.relu(tf.matmul(self.x, self.W1) + self.b1)
-        self.output = tf.matmul(self.L1, self.W2) + self.b2
+        # Make Q and Q'
+        self.x = tf.placeholder(tf.float32, [None, self.input_dim])
+        L1 = tf.nn.relu(tf.matmul(self.x, W1) + b1)
+        self.output = tf.matmul(L1, W2) + b2
+        self.q = tf.reduce_max(self.output, reduction_indices=[1])
 
-    def train(self, batch_x, batch_u, batch_x_, batch_y):
-        r = tf.placeholder(tf.float32, [None, 1])
-        q = tf.gather(self.output, batch_u)
-        # x_ = tf.placeholder(tf.float32, [None, 4])
-        output_ = self.eval(batch_x) # Q(s', a')
-        q_ = tf.reduce_max(output_, axis=1)
-        # import pdb; pdb.set_trace()
-        loss = tf.pow((r + q_ - q), 2)
-        train_step = tf.train.GradientDescentOptimizer(.05).minimize(loss)
-        sess.run(train_step, feed_dict={
-            self.x: batch_x,
-            x_: batch_x_,
-            r: batch_y,
-        })
+        self.x_ = tf.placeholder(tf.float32, [None, self.input_dim])
+        L1_ = tf.nn.relu(tf.matmul(self.x_, W1) + b1)
+        self.output_ = tf.matmul(L1_, W2) + b2
+        self.q_ = tf.reduce_max(self.output_, reduction_indices=[1])
 
-    def eval(self, batch_x):
-        return self.sess.run(self.output, feed_dict={self.x: batch_x})
+        self.r = tf.placeholder(tf.float32, [None])
+        self.pred = self.q
+        self.actual = self.r + self.q_
+
+        self.loss = .5 * tf.pow(self.actual - self.pred, 2)
 
     def suggest(self, batch_x):
-        return np.argmax(self.eval(batch_x), axis=1)
+        # s = self.sess.run(tf.argmax(self.output), feed_dict={self.x: batch_x})
+        out = self.sess.run(self.output, feed_dict={self.x: batch_x})
+        s = np.argmax(out, axis=1)
+        # print 'batch x', batch_x
+        # print 'move', out, s
+        if random.random() < .1:
+            return [random.randint(0, 1)]
+        else:
+            return s
+
+    def train(self, batch_x, batch_x_, batch_r):
+        fd = {
+            self.x: batch_x,
+            self.x_: batch_x_,
+            self.r: batch_r,
+        }
+        # print 'fd', fd
+        # pred = sess.run(self.pred, feed_dict=fd)
+        # actual = sess.run(self.actual, feed_dict=fd)
+        loss = sess.run(tf.reduce_mean(self.loss), feed_dict=fd)
+        # print 'loss, pred, actual', loss, pred, actual
+        print 'loss', loss
+        train_step = tf.train.GradientDescentOptimizer(.01).minimize(
+            tf.reduce_mean(self.loss))
+        sess.run(train_step, feed_dict=fd)
 
 
 class CartPole():
@@ -56,7 +80,7 @@ class CartPole():
     def run_episode(self):
         obs = self.env.reset()
         for i in range(STEPS_PER_EPISODE):
-            print 'step', i
+            # print 'step', i
             if self.render:
                 self.env.render()
             action = self.model.suggest([obs])[0]
@@ -64,6 +88,7 @@ class CartPole():
             real_reward = int(not done)
             new_memory = (obs, action, new_obs, float(real_reward))
             self.memory.append(new_memory)
+            obs = new_obs
             if done:
                 break
         return i
@@ -71,6 +96,11 @@ class CartPole():
     def build_memory(self, target_size):
         while len(self.memory) < target_size:
             self.run_episode()
+
+    def pop_memory(self):
+        m = self.memory
+        self.memory = []
+        return m
 
     # def train_q(target_episodes=100):
     #     model = QModel()
@@ -105,37 +135,29 @@ class CartPole():
 if __name__ == '__main__':
     env = gym.make('CartPole-v0')
     sess = tf.InteractiveSession()
-    model = QModel(sess)
+    model = QModel2(sess)
     tf.global_variables_initializer().run()
 
-    cp = CartPole(env, model, render=True)
-    cp.run_episode()
-    # cp.build_memory(100)
+    batch_x = [
+        [1, 2, .5, -.23],
+        [12, 2, .5, -.23],
+        [13, 2, .5, -.23],
+        [14, 2, .5, -.23],
+        [-1016, 21, .5, -.23],
+        [1, 23, .5, -.23],
+        [1, 24, .5, -.23],
+    ]
+    print sess.run(model.output, {model.x: batch_x})
+    print sess.run(model.q, {model.x: batch_x})
 
-    print 'here is my memory'
-    pp.pprint(cp.memory)
-    batch_x = [i[0] for i in cp.memory]
-    batch_action = [i[1] for i in cp.memory]
-    batch_x_ = [i[2] for i in cp.memory]
-    batch_y = [i[3] for i in cp.memory]
-    print 'train it!'
-    model.train(batch_x, batch_action, batch_x_, batch_y)
-
-    # run_and_plot('train_q', render=True)
-    # sess = tf.InteractiveSession()
-    # model = QModel(sess)
-    # tf.global_variables_initializer().run()
-
-    # batch_x = [
-    #     [1, 2, .5, -.23],
-    #     [12, 2, .5, -.23],
-    #     [13, 2, .5, -.23],
-    #     [14, 2, .5, -.23],
-    #     [-1016, 21, .5, -.23],
-    #     [1, 23, .5, -.23],
-    #     [1, 24, .5, -.23],
-    # ]
-    # y = model.eval(batch_x)
-    # print y
-    # act = model.suggest(batch_x)
-    # print act
+    cp = CartPole(env, model, render=False)
+    N = 10000
+    for i in range(N):
+        cp.run_episode()
+        # cp.build_memory(1000)
+        memory = cp.pop_memory()
+        print '%s/%s) steps: %s' % (i, N, len(memory))
+        batch_x = [i[0] for i in memory]
+        batch_x_ = [i[2] for i in memory]
+        batch_r = [i[3] for i in memory]
+        model.train(batch_x, batch_x_, batch_r)
