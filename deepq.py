@@ -18,17 +18,16 @@ class QModel2(object):
         self.input_dim = input_dim
         self.actions_dim = actions_dim
 
+        # Two hidden layers
         N1 = 100
         N2 = 50
 
-        # TODO: think about making this symmetric with minval=-1
         minv = -.001
         maxv = .001
         W1 = tf.Variable(tf.random_uniform([self.input_dim, N1], minval=minv, maxval=maxv))
         b1 = tf.Variable(tf.random_uniform([N1], minval=minv, maxval=maxv))
         W2 = tf.Variable(tf.random_uniform([N1, N2], minval=minv, maxval=maxv))
         b2 = tf.Variable(tf.random_uniform([N2], minval=minv, maxval=maxv))
-
         W3 = tf.Variable(tf.random_uniform([N2, self.actions_dim], minval=-1, maxval=1))
         b3 = tf.Variable(tf.random_uniform([self.actions_dim], minval=-1, maxval=1))
 
@@ -52,15 +51,9 @@ class QModel2(object):
         self.loss = .5 * tf.pow(self.actual - self.pred, 2)
 
     def suggest(self, batch_x):
-        # s = self.sess.run(tf.argmax(self.output), feed_dict={self.x: batch_x})
         out = self.sess.run(self.output, feed_dict={self.x: batch_x})
         s = np.argmax(out, axis=1)
-        # print 'batch x', batch_x
-        # print 'move', out, s
-        if random.random() < .1:
-            return [random.randint(0, 1)]
-        else:
-            return s
+        return s
 
     def train(self, batch_x, batch_x_, batch_r):
         fd = {
@@ -68,12 +61,7 @@ class QModel2(object):
             self.x_: batch_x_,
             self.r: batch_r,
         }
-        # print 'fd', fd
-        # pred = sess.run(self.pred, feed_dict=fd)
-        # actual = sess.run(self.actual, feed_dict=fd)
         loss = sess.run(tf.reduce_mean(self.loss), feed_dict=fd)
-        # print 'loss, pred, actual', loss, pred, actual
-        print 'loss', loss
         train_step = self.trainer.minimize(tf.reduce_mean(self.loss))
         sess.run(train_step, feed_dict=fd)
 
@@ -113,35 +101,6 @@ class CartPole():
         m = self.memory
         self.memory = []
         return m
-
-    # def train_q(target_episodes=100):
-    #     model = QModel()
-    #     for i in range(NUM_EPISODES):
-    #         # TODO: train model?
-    #         steps = run_episode(env, model, render)
-    #         if steps >= target_episodes:
-    #             return i
-    #     print 'i failed'
-    #     return i
-
-    # def run_and_plot(use, number_of_runs=100, render=False):
-    #     env = gym.make('CartPole-v0')
-    #     num_episodes = []
-    #     print 'Using {}'.format(use)
-    #     target_episodes = 199
-    #     for i in range(number_of_runs):
-    #         num_episodes.append(globals()[use](env, target_episodes, render=render))
-    #     success_num_episodes = []
-    #     for x in num_episodes:
-    #         if x < target_episodes / 2:
-    #             success_num_episodes.append(x)
-    #     print 'all episodes', num_episodes
-    #     print 'succcess episodes', success_num_episodes
-    #     print use, np.mean(success_num_episodes)
-    #     import matplotlib.pyplot as plt
-    #     plt.title(use)
-    #     plt.hist(num_episodes)
-    #     plt.show()
 
 
 if __name__ == '__main__':
