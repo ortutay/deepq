@@ -4,7 +4,7 @@ import numpy as np
 import tensorflow as tf
 import pprint
 
-STEPS_PER_EPISODE = 200
+MAX_STEPS_PER_EPISODE = 200
 NUM_EPISODES = 150
 
 pp = pprint.PrettyPrinter()
@@ -12,28 +12,37 @@ pp = pprint.PrettyPrinter()
 
 class QModel2(object):
 
-    def __init__(self, sess, input_dim=4, actions_dim=2):
+    def __init__(self, sess, trainer, input_dim=4, actions_dim=2):
         self.sess = sess
+        self.trainer = trainer
         self.input_dim = input_dim
         self.actions_dim = actions_dim
 
-        N = 100
+        N1 = 100
+        N2 = 50
 
         # TODO: think about making this symmetric with minval=-1
-        W1 = tf.Variable(tf.random_uniform([self.input_dim, N]))
-        b1 = tf.Variable(tf.random_uniform([N]))
-        W2 = tf.Variable(tf.random_uniform([N, self.actions_dim]))
-        b2 = tf.Variable(tf.random_uniform([self.actions_dim]))
+        minv = -.001
+        maxv = .001
+        W1 = tf.Variable(tf.random_uniform([self.input_dim, N1], minval=minv, maxval=maxv))
+        b1 = tf.Variable(tf.random_uniform([N1], minval=minv, maxval=maxv))
+        W2 = tf.Variable(tf.random_uniform([N1, N2], minval=minv, maxval=maxv))
+        b2 = tf.Variable(tf.random_uniform([N2], minval=minv, maxval=maxv))
+
+        W3 = tf.Variable(tf.random_uniform([N2, self.actions_dim], minval=-1, maxval=1))
+        b3 = tf.Variable(tf.random_uniform([self.actions_dim], minval=-1, maxval=1))
 
         # Make Q and Q'
         self.x = tf.placeholder(tf.float32, [None, self.input_dim])
         L1 = tf.nn.relu(tf.matmul(self.x, W1) + b1)
-        self.output = tf.matmul(L1, W2) + b2
+        L2 = tf.nn.relu(tf.matmul(L1, W2) + b2)
+        self.output = tf.matmul(L2, W3) + b3
         self.q = tf.reduce_max(self.output, reduction_indices=[1])
 
         self.x_ = tf.placeholder(tf.float32, [None, self.input_dim])
         L1_ = tf.nn.relu(tf.matmul(self.x_, W1) + b1)
-        self.output_ = tf.matmul(L1_, W2) + b2
+        L2_ = tf.nn.relu(tf.matmul(L1_, W2) + b2)
+        self.output_ = tf.matmul(L2_, W3) + b3
         self.q_ = tf.reduce_max(self.output_, reduction_indices=[1])
 
         self.r = tf.placeholder(tf.float32, [None])
@@ -65,8 +74,7 @@ class QModel2(object):
         loss = sess.run(tf.reduce_mean(self.loss), feed_dict=fd)
         # print 'loss, pred, actual', loss, pred, actual
         print 'loss', loss
-        train_step = tf.train.GradientDescentOptimizer(.01).minimize(
-            tf.reduce_mean(self.loss))
+        train_step = self.trainer.minimize(tf.reduce_mean(self.loss))
         sess.run(train_step, feed_dict=fd)
 
 
@@ -79,7 +87,7 @@ class CartPole():
 
     def run_episode(self):
         obs = self.env.reset()
-        for i in range(STEPS_PER_EPISODE):
+        for i in range(MAX_STEPS_PER_EPISODE):
             # print 'step', i
             if self.render:
                 self.env.render()
@@ -94,8 +102,12 @@ class CartPole():
         return i
 
     def build_memory(self, target_size):
+        best = 0
         while len(self.memory) < target_size:
-            self.run_episode()
+            n = self.run_episode()
+            if n > best:
+                best = n
+        print 'best was', best
 
     def pop_memory(self):
         m = self.memory
@@ -135,26 +147,16 @@ class CartPole():
 if __name__ == '__main__':
     env = gym.make('CartPole-v0')
     sess = tf.InteractiveSession()
-    model = QModel2(sess)
+    # trainer = tf.train.AdamOptimizer(.05, beta1=.9, beta2=.999)
+    trainer = tf.train.GradientDescentOptimizer(.05)
+    model = QModel2(sess, trainer)
     tf.global_variables_initializer().run()
 
-    batch_x = [
-        [1, 2, .5, -.23],
-        [12, 2, .5, -.23],
-        [13, 2, .5, -.23],
-        [14, 2, .5, -.23],
-        [-1016, 21, .5, -.23],
-        [1, 23, .5, -.23],
-        [1, 24, .5, -.23],
-    ]
-    print sess.run(model.output, {model.x: batch_x})
-    print sess.run(model.q, {model.x: batch_x})
-
     cp = CartPole(env, model, render=False)
-    N = 10000
+    N = 1000
     for i in range(N):
-        cp.run_episode()
-        # cp.build_memory(1000)
+        # cp.run_episode()
+        cp.build_memory(10000)
         memory = cp.pop_memory()
         print '%s/%s) steps: %s' % (i, N, len(memory))
         batch_x = [i[0] for i in memory]
