@@ -11,6 +11,15 @@ NUM_EPISODES = 150
 pp = pprint.PrettyPrinter()
 
 
+def print_memory():
+    import os
+    import psutil
+    pid = os.getpid()
+    py = psutil.Process(pid)
+    memoryUse = py.memory_info()[0]/2.**30  # memory use in GB...I think
+    print('memory use:', memoryUse)
+
+
 class QModel2(object):
 
     def __init__(self, sess, trainer, input_dim=4, actions_dim=2):
@@ -18,7 +27,6 @@ class QModel2(object):
         self.trainer = trainer
         self.input_dim = input_dim
         self.actions_dim = actions_dim
-        self.did_init_adam = False
 
         # Two hidden layers
         N1 = 100
@@ -52,6 +60,8 @@ class QModel2(object):
         self.actual = self.r + self.q_
 
         self.loss = .5 * tf.pow(self.actual - self.pred, 2)
+        self.train_step = self.trainer.minimize(tf.reduce_mean(self.loss))
+        # self.sess.graph.finalize()
 
     def suggest(self, batch_x):
         out = self.sess.run(self.output, feed_dict={self.x: batch_x})
@@ -66,11 +76,10 @@ class QModel2(object):
             self.r: batch_r,
         }
 
-        train_step = self.trainer.minimize(tf.reduce_mean(self.loss))
-        if not self.did_init_adam:
-            tf.global_variables_initializer().run()  # For AdamOptimizer
-            self.did_init_adam = True
-        self.sess.run(train_step, feed_dict=fd)
+        # if not self.did_init_adam:
+        #     tf.global_variables_initializer().run()  # For AdamOptimizer
+        #     self.did_init_adam = True
+        self.sess.run(self.train_step, feed_dict=fd)
 
 
 class CartPole():
@@ -161,14 +170,27 @@ def run_with_params(N, base_params):
 
     results = {}
     for perm_i, perm in enumerate(perms):
+        print_memory()
         print '== Permutation %i of %i: %s ==' % (perm_i, len(perms), perm)
-        env = gym.make('CartPole-v0')
-        sess = tf.InteractiveSession()
-        trainer = tf.train.AdamOptimizer(perm['learning_rate'], beta1=perm['beta1'], beta2=perm['beta2'])
-        model = QModel2(sess, trainer)
-        tf.global_variables_initializer().run()
-        cp = CartPole(env, model, render=False)
+        result = run_param_permutation(N, perm)
+        results[str(perm)] = result
+        print 'Results so far:'
+        pprint_perm_results(results)
 
+    return results
+
+
+def run_param_permutation(N, perm):
+    env = gym.make('CartPole-v0')
+    with tf.Graph().as_default(), tf.Session() as sess:
+        trainer = tf.train.AdamOptimizer(
+            perm['learning_rate'],
+            beta1=perm['beta1'],
+            beta2=perm['beta2'])
+        model = QModel2(sess, trainer)
+        sess.run(tf.global_variables_initializer())
+
+        cp = CartPole(env, model, render=False)
         result = []
         for i in range(N):
             steps = cp.run_episodes(10)
@@ -181,23 +203,21 @@ def run_with_params(N, base_params):
             batch_x_ = [i[2] for i in memory]
             batch_r = [i[3] for i in memory]
             model.train(batch_x, batch_actions, batch_x_, batch_r)
-        results[str(perm)] = result
-        print 'Results so far:'
-        pprint_perm_results(results)
-    return results
+    tf.reset_default_graph()
+    return result
 
 
 if __name__ == '__main__':
-    # base_params = {
-    #     'learning_rate': [.2, .1, .05, .02, .01, .005],
-    #     'beta1': [.8, .9, .95, .98, .99],
-    #     'beta2': [.95, .99, .995, .999],
-    # }
     base_params = {
-        'learning_rate': [.01],
-        'beta1': [.9],
-        'beta2': [.999],
+        'learning_rate': [.2, .1, .05, .02, .01, .005],
+        'beta1': [.8, .9, .95, .98, .99],
+        'beta2': [.95, .99, .995, .999],
     }
-    results = run_with_params(100, base_params)
+    # base_params = {
+    #     'learning_rate': [.01],
+    #     'beta1': [.9],
+    #     'beta2': [.999],
+    # }
+    results = run_with_params(50, base_params)
     print 'Results:'
     pprint_perm_results(results)
