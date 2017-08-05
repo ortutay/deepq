@@ -208,16 +208,16 @@ def run_param_permutation(N, perm):
 
 
 if __name__ == '__main__':
-    base_params = {
-        'learning_rate': [.2, .1, .05, .02, .01, .005],
-        'beta1': [.8, .9, .95, .98, .99],
-        'beta2': [.95, .99, .995, .999],
-    }
     # base_params = {
-    #     'learning_rate': [.01],
-    #     'beta1': [.9],
-    #     'beta2': [.999],
+    #     'learning_rate': [.2, .1, .05, .02, .01, .005],
+    #     'beta1': [.8, .9, .95, .98, .99],
+    #     'beta2': [.95, .99, .995, .999],
     # }
-    results = run_with_params(50, base_params)
+    base_params = {
+        'learning_rate': [.01],
+        'beta1': [.95],
+        'beta2': [.99],
+    }
+    results = run_with_params(5000, base_params)
     print 'Results:'
     pprint_perm_results(results)
