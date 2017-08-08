@@ -3,10 +3,17 @@ import gym
 import numpy as np
 import tensorflow as tf
 import pprint
-import sys
+import tempfile
+import os
+import shutil
+import json
+
+from collections import defaultdict
+from gym import wrappers
 
 MAX_STEPS_PER_EPISODE = 200
 NUM_EPISODES = 150
+OPEN_AI_KEY = os.environ.get('OPEN_AI_KEY')
 
 pp = pprint.PrettyPrinter()
 
@@ -22,15 +29,11 @@ def print_memory():
 
 class QModel2(object):
 
-    def __init__(self, sess, trainer, input_dim=4, actions_dim=2):
+    def __init__(self, sess, trainer, N1=100, N2=50, input_dim=4, actions_dim=2):
         self.sess = sess
         self.trainer = trainer
         self.input_dim = input_dim
         self.actions_dim = actions_dim
-
-        # Two hidden layers
-        N1 = 100
-        N2 = 50
 
         minv = -.001
         maxv = .001
@@ -159,12 +162,28 @@ def permute_params(base_params):
 
 
 def pprint_perm_results(results):
-    for key in results.keys():
-        print '%s: %s' % (key, results[key])
+    keys = results.keys()
+    keys.sort(key=lambda x: sum(results[x]))
+    for key in keys:
+        r = results[key]
+        print '- %.01f: %s - %s...%s' % (float(sum(r))/len(r), key, r[:10], r[-10:-1])
+
+    results_by_value = defaultdict(lambda: {'sum': 0, 'count': 0})
+    for perm_json, r in results.iteritems():
+        perm = json.loads(perm_json)
+        for param, value in perm.iteritems():
+            kv = '%s=%s' % (param, value)
+            results_by_value[kv]['sum'] += sum(r)
+            results_by_value[kv]['count'] += len(r)
+
+    print 'Avg per hyperparam value:'
+    for kv in sorted(results_by_value.keys()):
+        score = results_by_value[kv]
+        print '- %s: %01.f' % (kv, float(score['sum'])/score['count'])
     print ''
 
 
-def run_with_params(N, base_params):
+def run_with_params(N, base_params, upload=False):
     perms = permute_params(base_params)
     pp.pprint(perms)
 
@@ -172,52 +191,65 @@ def run_with_params(N, base_params):
     for perm_i, perm in enumerate(perms):
         print_memory()
         print '== Permutation %i of %i: %s ==' % (perm_i, len(perms), perm)
-        result = run_param_permutation(N, perm)
-        results[str(perm)] = result
+        result = run_param_permutation(N, perm, upload)
+        results[json.dumps(perm)] = result
         print 'Results so far:'
         pprint_perm_results(results)
 
     return results
 
 
-def run_param_permutation(N, perm):
+def run_param_permutation(N, perm, upload=False):
     env = gym.make('CartPole-v0')
+    if upload:
+        data_path = '%s/cartpole' % tempfile.gettempdir()
+        if os.path.exists(data_path):
+            shutil.rmtree(data_path)
+        env = wrappers.Monitor(env, data_path)
     with tf.Graph().as_default(), tf.Session() as sess:
         trainer = tf.train.AdamOptimizer(
             perm['learning_rate'],
             beta1=perm['beta1'],
             beta2=perm['beta2'])
-        model = QModel2(sess, trainer)
+        model = QModel2(sess, trainer, N1=perm['N1'], N2=perm['N2'])
         sess.run(tf.global_variables_initializer())
 
         cp = CartPole(env, model, render=False)
         result = []
         for i in range(N):
-            steps = cp.run_episodes(10)
+            steps = cp.run_episodes(1)
             memory = cp.pull_memory(1000)
             result.append(steps)
             cp.forget(.1)
-            print '%s/%s) steps: %s' % (i, N, steps)
+            if (i % 50 == 0):
+                print '%s/%s) steps: %s' % (i, N, steps)
             batch_x = [i[0] for i in memory]
             batch_actions = [[i, x[1]] for i, x in enumerate(memory)]
             batch_x_ = [i[2] for i in memory]
             batch_r = [i[3] for i in memory]
             model.train(batch_x, batch_actions, batch_x_, batch_r)
+    env.close()
+    if upload:
+        gym.upload(data_path, api_key=OPEN_AI_KEY)
     tf.reset_default_graph()
     return result
 
 
 if __name__ == '__main__':
     # base_params = {
-    #     'learning_rate': [.2, .1, .05, .02, .01, .005],
-    #     'beta1': [.8, .9, .95, .98, .99],
-    #     'beta2': [.95, .99, .995, .999],
+    #     'learning_rate': [.1, .05, .02, .01],
+    #     'beta1': [.8, .9, .95],
+    #     'beta2': [.95, .99, .999],
+    #     'N1': [10, 50, 100, 500],
+    #     'N2': [10, 50, 100, 500],
     # }
     base_params = {
-        'learning_rate': [.01],
+        'learning_rate': [.01, .02, .05],
         'beta1': [.95],
-        'beta2': [.99],
+        'beta2': [.95],
+        'N1': [100, 500],
+        'N2': [50, 100],
     }
-    results = run_with_params(5000, base_params)
+    results = run_with_params(1000, base_params, upload=True)
     print 'Results:'
     pprint_perm_results(results)
