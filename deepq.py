@@ -116,7 +116,7 @@ class CartPole():
             n = self.run_episode()
             if n > best:
                 best = n
-        print 'best was', best
+        print('best was', best)
         return best
 
     def pop_memory(self):
@@ -150,8 +150,8 @@ def permute_params(base_params):
         perm = {}
         div_by = 1
         for j in range(len(base_params.keys())):
-            key = base_params.keys()[j]
-            idx = i/div_by % len(base_params[key])
+            key = list(base_params)[j]
+            idx = i//div_by % len(base_params[key])
             div_by *= len(base_params[key])
             perm[key] = base_params[key][idx]
         perms.append(perm)
@@ -160,8 +160,8 @@ def permute_params(base_params):
 
 def pprint_perm_results(results):
     for key in results.keys():
-        print '%s: %s' % (key, results[key])
-    print ''
+        print('%s: %s' % (key, results[key]))
+    print('')
 
 
 def run_with_params(N, base_params):
@@ -171,10 +171,10 @@ def run_with_params(N, base_params):
     results = {}
     for perm_i, perm in enumerate(perms):
         print_memory()
-        print '== Permutation %i of %i: %s ==' % (perm_i, len(perms), perm)
+        print('== Permutation %i of %i: %s ==' % (perm_i, len(perms), perm))
         result = run_param_permutation(N, perm)
         results[str(perm)] = result
-        print 'Results so far:'
+        print('Results so far:')
         pprint_perm_results(results)
 
     return results
@@ -197,7 +197,7 @@ def run_param_permutation(N, perm):
             memory = cp.pull_memory(1000)
             result.append(steps)
             cp.forget(.1)
-            print '%s/%s) steps: %s' % (i, N, steps)
+            print('%s/%s) steps: %s' % (i, N, steps))
             batch_x = [i[0] for i in memory]
             batch_actions = [[i, x[1]] for i, x in enumerate(memory)]
             batch_x_ = [i[2] for i in memory]
@@ -219,5 +219,5 @@ if __name__ == '__main__':
         'beta2': [.99],
     }
     results = run_with_params(5000, base_params)
-    print 'Results:'
+    print('Results:')
     pprint_perm_results(results)
